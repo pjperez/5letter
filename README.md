@@ -4,6 +4,8 @@ This project helps you find available 5-letter `.com` domains, filter them for p
 
 It is designed to be **fast**, **scalable**, **resilient**, and **fully automatable**.
 
+Please note domains not resolving may still be unavailable.
+
 ---
 
 ## Project Structure
@@ -95,6 +97,8 @@ python vibe_score_domains_dynamic_smart.py
 ---
 
 ## Example Outputs
+
+(These domains are made up)
 
 **TXT Output** (best domains first):
 
