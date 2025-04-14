@@ -9,7 +9,7 @@ It is designed to be **fast**, **scalable**, **resilient**, and **fully automata
 ## Project Structure
 
 | File | Purpose |
-|:---|:---|:---|
+|:---|:---|
 | `check_domains_async.py` | Asynchronously scan for available 5-letter domains using DNS lookups with thousands of parallel tasks. Saves progress to allow resuming. |
 | `filter_domains.py` | Simple linguistic filter: keeps domains that are pronounceable based on consonant/vowel patterns (e.g., no 3 consonants or vowels in a row). |
 | `vibe_score_domains_dynamic_smart.py` | Vibe check domains using vector embeddings. Dynamically adjusts batch size based on available system memory. Scores good domains and outputs both `.txt` and `.csv` formats. |
