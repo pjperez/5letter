@@ -2,6 +2,8 @@ import asyncio
 import aiodns
 import itertools
 import string
+import os
+import random
 
 # --- Config ---
 tld = ".com"
@@ -75,7 +77,8 @@ async def main():
         if resume_from and not started:
             if domain == resume_from:
                 started = True
-            continue if not started else None
+            else:
+                continue
         await domains.put(domain)
 
     resolver_pool = itertools.cycle([
