@@ -75,7 +75,7 @@ async def progress_writer(progress_queue):
                 f.write(last_saved)
 
 async def main():
-    domains = asyncio.Queue()
+    domains = asyncio.Queue(maxsize=5000) 
     available_queue = asyncio.Queue()
     progress_queue = asyncio.Queue()
 
@@ -113,8 +113,6 @@ async def main():
             else:
                 continue
         await domains.put(domain)
-        if domains.qsize() > 5000:
-            await asyncio.sleep(0.1)
         if domains.qsize() % 1000 == 0:
             print(f"Queued {domains.qsize()} domains")
 
