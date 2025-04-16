@@ -19,12 +19,22 @@ progress_file = "progress.txt"
 async def check_domain(domain, resolver):
     try:
         await resolver.gethostbyname(domain, socket.AF_INET)
-        return (domain, False)
-    except aiodns.error.DNSError:
-        return (domain, True)
+        return (domain, False)  # Domain exists, not available
+    except aiodns.error.DNSError as e:
+        if e.args and "NXDOMAIN" in str(e.args[0]):
+            return (domain, True)  # ✅ Legit available
+        else:
+            async with asyncio.Lock():
+                with open("dns_errors.txt", "a") as errfile:
+                    errfile.write(f"{domain} - {e}\n")
+            return (domain, False)
     except Exception as e:
-        print(f"[error] {domain}: {e}")
+        async with asyncio.Lock():
+            with open("dns_errors.txt", "a") as errfile:
+                errfile.write(f"{domain} - {e}\n")
         return (domain, False)
+
+
 
 async def worker(domains, resolver_pool, available_queue, progress_queue):
     print("[worker] started")
