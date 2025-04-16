@@ -4,18 +4,18 @@ import time
 
 INPUT_CSV = "filtered_available_scored.csv"
 OUTPUT_CSV = "actually_available.csv"
-TOP_N = 100
+TOP_N = 500
 WHOIS_TIMEOUT = 5  # seconds
 
 def is_unregistered(domain):
     try:
         result = subprocess.check_output(
-            ["whois", domain], stderr=subprocess.DEVNULL, timeout=WHOIS_TIMEOUT
+            ["whois", "-h", "whois.verisign-grs.com", domain],
+            stderr=subprocess.DEVNULL,
+            timeout=WHOIS_TIMEOUT
         ).decode("utf-8", errors="ignore").lower()
 
-        return any(keyword in result for keyword in [
-            "no match", "not found", "status: free", "available", "no data found"
-        ])
+        return "no match for" in result
     except subprocess.TimeoutExpired:
         print(f"[timeout] {domain}")
         return False
@@ -38,7 +38,7 @@ def main():
         else:
             print("❌ registered")
 
-        time.sleep(1.0)  # avoid hammering
+        time.sleep(1.0)  # rate limiting
 
     print(f"\nWriting {len(available)} unregistered domains to {OUTPUT_CSV}")
     pd.DataFrame(available, columns=["domain"]).to_csv(OUTPUT_CSV, index=False)
