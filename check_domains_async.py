@@ -34,8 +34,6 @@ async def check_domain(domain, resolver):
                 errfile.write(f"{domain} - {e}\n")
         return (domain, False)
 
-
-
 async def worker(domains, resolver_pool, available_queue, progress_queue):
     print("[worker] started")
     while True:
