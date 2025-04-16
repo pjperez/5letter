@@ -19,19 +19,13 @@ progress_file = "progress.txt"
 async def check_domain(domain, resolver):
     try:
         await resolver.gethostbyname(domain, socket.AF_INET)
-        return (domain, False)  # Domain exists, not available
+        return (domain, False)  # Domain exists
     except aiodns.error.DNSError as e:
-        if e.args and "NXDOMAIN" in str(e.args[0]):
-            return (domain, True)  # ✅ Legit available
-        else:
-            async with asyncio.Lock():
-                with open("dns_errors.txt", "a") as errfile:
-                    errfile.write(f"{domain} - {e}\n")
-            return (domain, False)
-    except Exception as e:
-        async with asyncio.Lock():
-            with open("dns_errors.txt", "a") as errfile:
-                errfile.write(f"{domain} - {e}\n")
+        # Only NXDOMAIN (code 4) counts as available
+        if isinstance(e.args[0], int) and e.args[0] == 4:
+            return (domain, True)
+        return (domain, False)
+    except Exception:
         return (domain, False)
 
 async def worker(domains, resolver_pool, available_queue, progress_queue):
@@ -73,7 +67,7 @@ async def progress_writer(progress_queue):
                 f.write(last_saved)
 
 async def main():
-    domains = asyncio.Queue(maxsize=5000) 
+    domains = asyncio.Queue(maxsize=5000)
     available_queue = asyncio.Queue()
     progress_queue = asyncio.Queue()
 
@@ -83,7 +77,6 @@ async def main():
             resume_from = f.read().strip()
         print(f"[RESUME] Resuming from {resume_from}")
 
-    # 🧠 Spawn tasks BEFORE generating domains
     resolver_pool = itertools.cycle([
         aiodns.DNSResolver(nameservers=[ip], timeout=timeout, tries=1)
         for ip in resolvers
@@ -99,7 +92,6 @@ async def main():
 
     print(f"Spawned {len(tasks)} worker tasks")
 
-    # 🔁 Generate domains
     letters = string.ascii_lowercase
     started = False
     for combo in itertools.product(letters, repeat=length):
