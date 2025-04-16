@@ -4,12 +4,13 @@ import itertools
 import string
 import os
 import random
+import socket
 
 # --- Config ---
 tld = ".com"
 length = 5
 resolvers = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "8.8.4.4"]
-concurrency = 10000
+concurrency = 500
 timeout = 1
 output_file = "available.txt"
 progress_file = "progress.txt"
@@ -21,10 +22,12 @@ async def check_domain(domain, resolver):
         return (domain, False)
     except aiodns.error.DNSError:
         return (domain, True)
-    except Exception:
+    except Exception as e:
+        print(f"[error] {domain}: {e}")
         return (domain, False)
 
 async def worker(domains, resolver_pool, available_queue, progress_queue):
+    print("[worker] started")
     while True:
         try:
             domain = await domains.get()
@@ -38,9 +41,11 @@ async def worker(domains, resolver_pool, available_queue, progress_queue):
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f"Error checking domain: {e}")
+            print(f"[worker error] {e}")
+            raise
 
 async def file_writer(queue, filename):
+    print("[file_writer] running")
     with open(filename, "a") as f:
         while True:
             item = await queue.get()
@@ -49,12 +54,12 @@ async def file_writer(queue, filename):
             queue.task_done()
 
 async def progress_writer(progress_queue):
+    print("[progress_writer] running")
     last_saved = None
     while True:
         domain = await progress_queue.get()
         last_saved = domain
         progress_queue.task_done()
-
         if random.randint(1, 1000) == 1:
             with open(progress_file, "w") as f:
                 f.write(last_saved)
@@ -68,19 +73,9 @@ async def main():
     if os.path.exists(progress_file):
         with open(progress_file, "r") as f:
             resume_from = f.read().strip()
-        print(f"Resuming from {resume_from}")
+        print(f"[RESUME] Resuming from {resume_from}")
 
-    letters = string.ascii_lowercase
-    started = False
-    for combo in itertools.product(letters, repeat=length):
-        domain = ''.join(combo) + tld
-        if resume_from and not started:
-            if domain == resume_from:
-                started = True
-            else:
-                continue
-        await domains.put(domain)
-
+    # 🧠 Spawn tasks BEFORE generating domains
     resolver_pool = itertools.cycle([
         aiodns.DNSResolver(nameservers=[ip], timeout=timeout, tries=1)
         for ip in resolvers
@@ -93,6 +88,25 @@ async def main():
     for _ in range(concurrency):
         task = asyncio.create_task(worker(domains, resolver_pool, available_queue, progress_queue))
         tasks.append(task)
+
+    print(f"Spawned {len(tasks)} worker tasks")
+
+    # 🔁 Generate domains
+    letters = string.ascii_lowercase
+    started = False
+    for combo in itertools.product(letters, repeat=length):
+        domain = ''.join(combo) + tld
+        if resume_from and not started:
+            if domain == resume_from:
+                print(f"[RESUME] Found resume point: {domain}")
+                started = True
+            else:
+                continue
+        await domains.put(domain)
+        if domains.qsize() > 5000:
+            await asyncio.sleep(0.1)
+        if domains.qsize() % 1000 == 0:
+            print(f"Queued {domains.qsize()} domains")
 
     await domains.join()
     await available_queue.join()
