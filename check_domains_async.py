@@ -5,6 +5,7 @@ import string
 import os
 import random
 import socket
+import re
 
 # --- Config ---
 tld = ".com"
@@ -15,6 +16,20 @@ timeout = 1
 output_file = "available.txt"
 progress_file = "progress.txt"
 # ---------------
+
+def is_pronounceable(domain):
+    name = domain.replace(".com", "")
+
+    if re.search(r"[bcdfghjklmnpqrstvwxyz]{3}", name):
+        return False
+    if re.search(r"[aeiou]{3}", name):
+        return False
+    if not re.search(r"[aeiou]", name):
+        return False
+    if not re.match(r"[bcdfghjklmnpqrstvwxyz][aeiou]", name):
+        return False
+
+    return True
 
 async def check_domain(domain, resolver):
     try:
@@ -94,6 +109,7 @@ async def main():
 
     letters = string.ascii_lowercase
     started = False
+    filtered_count = 0
     for combo in itertools.product(letters, repeat=length):
         domain = ''.join(combo) + tld
         if resume_from and not started:
@@ -102,6 +118,9 @@ async def main():
                 started = True
             else:
                 continue
+        if not is_pronounceable(domain):
+            filtered_count += 1
+            continue
         await domains.put(domain)
         if domains.qsize() % 1000 == 0:
             print(f"Queued {domains.qsize()} domains")
@@ -109,6 +128,8 @@ async def main():
     await domains.join()
     await available_queue.join()
     await progress_queue.join()
+
+    print(f"Filtered out {filtered_count} domains due to pronounceability rules")
 
     for task in tasks:
         task.cancel()
