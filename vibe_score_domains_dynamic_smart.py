@@ -1,9 +1,9 @@
 from sentence_transformers import SentenceTransformer, util
-import torch
 import sys
 import os
 import psutil
 import csv
+import argparse
 
 BAD_CONCEPTS = [
     "racist", "gross", "disease", "toxic", "ugly", "hate", "violence", "boring",
@@ -15,18 +15,24 @@ GOOD_CONCEPTS = [
     "brilliant", "playful", "fresh", "powerful", "aesthetic", "catchy", "original"
 ]
 
+DEFAULT_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_MIN_RAM_GB_BATCHS = {
+    0: 64,
+    1: 64,
+    2: 128,
+    4: 256,
+}
+
 def estimate_batch_size(model, num_domains):
     ram_bytes = psutil.virtual_memory().available
     ram_gb = ram_bytes / (1024 ** 3)
     print(f"Detected {ram_gb:.2f} GB RAM.")
-    if ram_gb < 1:
-        return 64
-    elif ram_gb < 2:
-        return 128
-    elif ram_gb < 4:
-        return 256
-    else:
-        return min(1024, num_domains)
+
+    for threshold, batch_size in sorted(DEFAULT_MIN_RAM_GB_BATCHS.items()):
+        if ram_gb < threshold:
+            return batch_size
+
+    return min(1024, num_domains)
 
 def load_domains(path):
     with open(path, "r") as f:
@@ -42,55 +48,69 @@ def write_outputs(scored, txt_path, csv_path):
             writer.writerow([domain, f"{score:.4f}"])
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python vibe_score_domains_dynamic_smart.py filtered_available.txt")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Score domains by 'vibe' using sentence embeddings")
+    parser.add_argument("input", help="Input file with domains")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="Sentence transformer model to use")
+    parser.add_argument("--output-txt", help="Output TXT file path (auto-generated if not specified)")
+    parser.add_argument("--output-csv", help="Output CSV file path (auto-generated if not specified)")
+    args = parser.parse_args()
 
-    input_path = sys.argv[1]
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
-    txt_output = f"{base_name}_scored.txt"
-    csv_output = f"{base_name}_scored.csv"
+    try:
+        input_path = args.input
+        base_name = os.path.splitext(os.path.basename(input_path))[0]
 
-    print("Loading model...")
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+        if args.output_txt:
+            txt_output = args.output_txt
+        else:
+            txt_output = f"{base_name}_scored.txt"
 
-    print(f"Loading domains from {input_path}...")
-    domains = load_domains(input_path)
-    print(f"Loaded {len(domains)} domains.")
+        if args.output_csv:
+            csv_output = args.output_csv
+        else:
+            csv_output = f"{base_name}_scored.csv"
 
-    batch_size = estimate_batch_size(model, len(domains))
-    print(f"Starting batch size: {batch_size}")
+        print("Loading model...")
+        model = SentenceTransformer(args.model)
 
-    print("Embedding bad and good concepts...")
-    bad_embeddings = model.encode(BAD_CONCEPTS, convert_to_tensor=True, normalize_embeddings=True)
-    good_embeddings = model.encode(GOOD_CONCEPTS, convert_to_tensor=True, normalize_embeddings=True)
+        print(f"Loading domains from {input_path}...")
+        domains = load_domains(input_path)
+        print(f"Loaded {len(domains)} domains.")
 
-    print("Checking and scoring domains...")
-    scored = []
+        batch_size = estimate_batch_size(model, len(domains))
+        print(f"Starting batch size: {batch_size}")
 
-    for i in range(0, len(domains), batch_size):
-        batch = domains[i:i + batch_size]
-        embeddings = model.encode(batch, convert_to_tensor=True, normalize_embeddings=True)
+        print("Embedding bad and good concepts...")
+        bad_embeddings = model.encode(BAD_CONCEPTS, convert_to_tensor=True, normalize_embeddings=True)
+        good_embeddings = model.encode(GOOD_CONCEPTS, convert_to_tensor=True, normalize_embeddings=True)
 
-        for j, embedding in enumerate(embeddings):
-            if len(bad_embeddings) > 0:
-                bad_similarities = util.cos_sim(embedding, bad_embeddings)
-                bad_score = bad_similarities.max().item()
-            else:
-                bad_score = 0.0
+        print("Checking and scoring domains...")
+        scored = []
 
-            if len(good_embeddings) > 0:
-                good_similarities = util.cos_sim(embedding, good_embeddings)
-                good_score = good_similarities.max().item()
-            else:
-                good_score = 0.0
+        for i in range(0, len(domains), batch_size):
+            batch = domains[i:i + batch_size]
+            embeddings = model.encode(batch, convert_to_tensor=True, normalize_embeddings=True)
 
-            vibe_score = good_score - bad_score
-            scored.append((batch[j], vibe_score))
+            bad_similarities = util.cos_sim(embeddings, bad_embeddings)
+            bad_scores = bad_similarities.max(dim=1).values
 
-    print(f"Writing results to {txt_output} and {csv_output}...")
-    write_outputs(scored, txt_output, csv_output)
-    print("Done.")
+            good_similarities = util.cos_sim(embeddings, good_embeddings)
+            good_scores = good_similarities.max(dim=1).values
+
+            vibe_scores = good_scores - bad_scores
+
+            for domain, score in zip(batch, vibe_scores):
+                scored.append((domain, score.item()))
+
+        print(f"Writing results to {txt_output} and {csv_output}...")
+        write_outputs(scored, txt_output, csv_output)
+        print("Done.")
+
+    except IOError as e:
+        print(f"Error reading/writing files: {e}")
+        return
+    except Exception as e:
+        print(f"Error: {e}")
+        return
 
 if __name__ == "__main__":
     main()
